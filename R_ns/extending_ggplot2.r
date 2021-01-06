@@ -123,11 +123,6 @@ create_spring <- function(x, y, xend, yend, diameter = 1, tension = 0.75, n = 50
 
 
 #### _2) StatSpring
-
-## Define %||% to be a coalesce like function; use x, if x is NA, then use y
-`%||%` <- function(x, y) {
-  if (is.null(x)) y else x
-}
 StatSpring <- ggproto("StatSpring", Stat, 
                       setup_data = function(data, params) {
                         if (anyDuplicated(data$group)) {
@@ -140,6 +135,7 @@ StatSpring <- ggproto("StatSpring", Stat,
                                                tension = 0.75, 
                                                n = 50) {
                         cols_to_keep <- setdiff(names(data), c("x", "y", "xend", "yend"))
+                        browser()
                         springs <- lapply(seq_len(nrow(data)), function(i) {
                           spring_path <- create_spring(
                             data$x[i], data$y[i], 
@@ -151,7 +147,6 @@ StatSpring <- ggproto("StatSpring", Stat,
                           cbind(spring_path, unclass(data[i, cols_to_keep]))
                         })
                         do.call(rbind, springs)
-                        browser()
                       },
                       required_aes = c("x", "y", "xend", "yend")
 )
@@ -223,7 +218,7 @@ geom_spring <- function(mapping = NULL,
 
 ## _4) Test drive
 ## __A) Without group
-some_data <- tibble(
+some_data <- tibble::tibble(
   x = runif(5, max = 10),
   y = runif(5, max = 10),
   xend = runif(5, max = 10),
@@ -395,35 +390,43 @@ data <- z; probs <- seq(.3, .7, .1); type = 1
 
 #### _1) data transform
 ## Computes quantiles for y, for each level of x, facet, and group
-create_quantile_ribbon <- function(data, prob, type = 1){
-  if(length(probs) %% 2 == 0)
-    rlang::abort("Expects an odd number of `probs`")
-  
-  u_x <- unique(data$x)
+create_quantile_ribbon <-
+  function(x, y, probs, ...){ ## ... for addition quantile() args.
+  u_x <- unique(x)
   ## Quantiles as a list within each unique x (applied to group and facet later)
-  lapply(seq_len(length(u_x)), function(i){
-    sub_y <- data$y[which(data$x %in% u_x[i])]
-    quantile(sub_y, probs, na.rm = TRUE, type = type)
+  out_ls <- lapply(seq_len(length(u_x)), function(i){
+    sub_y <- y[which(x %in% u_x[i])]
+    quantile(sub_y, probs, na.rm = TRUE, ...)
   })
-}
+  names(out_ls) <- u_x
+  return(out_ls)
+  }
+#' @example 
+#' create_quantile_ribbon(
+#'   x = rep(factor(c("a", "b")), each = 5),
+#'   y = 1:10, 
+#'   probs = seq(.2, 1, by = .1), type = 2 ## type goes through `...`
+#' )
 
 
 #### _2) StatProj
-StatQuan <- ggproto(
-  "StatMyquantile", Stat, 
-  ## stat operates on multiple rows; use compute_group() over compute_panel()
+StatQuantileRibbon <- ggproto(
+  "StatQuantileRibbon", Stat,
   setup_data = function(data, params){
     if(anyDuplicated(data$group)){
       data$group <- paste(data$group, seq_len(nrow(data)), sep = "-")
     }
     data
   },
+  ## stat operates on multiple rows; use compute_group() over compute_panel()
   compute_group = function(data, scales,
-                           probs, type = 1){
+                           probs, ...){
     cols_to_keep <- setdiff(names(data), c("x", "y"))
-    l_quantiles <- lapply(seq_len(nrow(data)), function(i){
-      single_quantile_group <- create_myquantile(data, probs, type)
-      cbind(single_quantile_group, unclass(data[i, cols_to_keep]))
+    ## Should be for each row (like springs?), or each unique level of x?
+    l_quantiles <- lapply(seq_len(length(unique(data$x))), function(i){
+      single_qr_ls <- create_quantile_ribbon(data$x[i], data$y[i], probs, ...)
+      ## This is not going to work for a list object, try tibble?
+      cbind(single_qr_ls, unclass(data[i, cols_to_keep]))
     })
     do.call(rbind, l_quantiles)
   },
@@ -432,10 +435,10 @@ StatQuan <- ggproto(
 
 
 #### _3) stat_proj
-stat_myquantile <- function(mapping = NULL, data = NULL, geom = "ribbon",
-                            position = "identity", ...,
-                            probs = NULL, type = 1,
-                            na.rm = FALSE, show.legend = NA, inherit.aes = TRUE){
+stat_quantile_ribbon <- function(mapping = NULL, data = NULL, geom = "ribbon",
+                                 position = "identity", ...,
+                                 probs = NULL,
+                                 na.rm = FALSE, show.legend = NA, inherit.aes = TRUE){
   browser()
   layer(data = data, 
         mapping = mapping, 
@@ -445,7 +448,6 @@ stat_myquantile <- function(mapping = NULL, data = NULL, geom = "ribbon",
         show.legend = show.legend,
         inherit.aes = inherit.aes,
         params = list(probs = probs,
-                      type = tpye,
                       na.rm = na.rm,
                       ...
         )
