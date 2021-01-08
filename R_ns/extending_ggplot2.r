@@ -356,13 +356,12 @@ ggplot(dat) +
 
 #### Mitch did one for geom_hdr, but that is a complex example.
 ## Alternatively, he did a simpler one a while ago, ggquiver
-## https://cran.r-project.org/web//packages/ggquiver/index.html
+if(F)
+  browseURL("https://github.com/mitchelloharawild/ggquiver")
 
 #### Example data
 toy <- tsibbledata::vic_elec
 #skimr::skim(toy) ## plotting demand across time.
-
-
 
 
 ## geom ribbon example
@@ -388,30 +387,28 @@ z <- data.frame(
 )
 data <- z; probs <- seq(.3, .7, .1); type = 1
 
-#### _1) data transform
-## Computes quantiles for y, for each level of x, facet, and group
-create_quantile_ribbon <-
-  function(x, y, probs, ...){ ## ... for addition quantile() args.
-  u_x <- unique(x)
-  ## Quantiles as a list within each unique x (applied to group and facet later)
-  out_ls <- lapply(seq_len(length(u_x)), function(i){
-    sub_y <- y[which(x %in% u_x[i])]
-    quantile(sub_y, probs, na.rm = TRUE, ...)
-  })
-  names(out_ls) <- u_x
-  return(out_ls)
-  }
-#' @example 
-#' create_quantile_ribbon(
-#'   x = rep(factor(c("a", "b")), each = 5),
-#'   y = 1:10, 
-#'   probs = seq(.2, 1, by = .1), type = 2 ## type goes through `...`
-#' )
-
+### MOVE ITO StatQR
+#' #### _1) data transform
+#' ## Computes quantiles for y, for each level of x, facet, and group
+#' create_quantile_ribbon <-
+#'   function(x, y, probs, ...){ ## ... for addition quantile() args.
+#'     q <- quantile(y, probs, na.rm = TRUE, ...)
+#'     data.frame(x, t(q))
+#'   }
+#' #' @example 
+#' #' create_quantile_ribbon(
+#' #'   x = factor("a"), y = 1:10, 
+#' #'   probs = seq(.2, 1, by = .1), type = 2 ## type goes through `...`
+#' #' )
 
 #### _2) StatProj
+## See Boxplot example:
+if(F)
+  browseURL("https://github.com/tidyverse/ggplot2/blob/master/R/stat-boxplot.r")
+
 StatQuantileRibbon <- ggproto(
   "StatQuantileRibbon", Stat,
+  required_aes = c("x", "y"),
   setup_data = function(data, params){
     if(anyDuplicated(data$group)){
       data$group <- paste(data$group, seq_len(nrow(data)), sep = "-")
@@ -419,18 +416,11 @@ StatQuantileRibbon <- ggproto(
     data
   },
   ## stat operates on multiple rows; use compute_group() over compute_panel()
-  compute_group = function(data, scales,
-                           probs, ...){
+  compute_group = function(data, scales, probs, ...){
     cols_to_keep <- setdiff(names(data), c("x", "y"))
-    ## Should be for each row (like springs?), or each unique level of x?
-    l_quantiles <- lapply(seq_len(length(unique(data$x))), function(i){
-      single_qr_ls <- create_quantile_ribbon(data$x[i], data$y[i], probs, ...)
-      ## This is not going to work for a list object, try tibble?
-      cbind(single_qr_ls, unclass(data[i, cols_to_keep]))
-    })
-    do.call(rbind, l_quantiles)
-  },
-  required_aes = c("x", "y")
+    qs <- quantile(data$y, probs, na.rm = TRUE, ...)
+    data.frame(data$x, t(qs))
+  }
 )
 
 
