@@ -419,22 +419,25 @@ StatQuantileRibbon <- ggproto(
   compute_group = function(data, scales, probs, ...){
     cols_to_keep <- setdiff(names(data), c("x", "y"))
     qs <- quantile(data$y, probs, na.rm = TRUE, ...)
-    data.frame(data$x, t(qs))
+    out_df <- data.frame(data$x, t(qs))
+    names(out_df) <- c("x", names(qs))
+    out_df
   }
 )
 
 
 #### _3) stat_proj
-stat_quantile_ribbon <- function(mapping = NULL, data = NULL, geom = "ribbon",
-                                 position = "identity", ...,
-                                 probs = NULL,
-                                 na.rm = FALSE, show.legend = NA, inherit.aes = TRUE){
-  browser()
-  layer(data = data, 
-        mapping = mapping, 
-        stat = StatMyquantile,
-        geom = geom, 
-        position = position, 
+stat_quantile_ribbon <- function(
+  mapping = NULL, data = NULL, geom = "ribbon",
+  position = "identity", ...,
+  probs = NULL,
+  na.rm = TRUE, show.legend = NA, inherit.aes = TRUE)
+{
+  layer(data = data,
+        mapping = mapping,
+        stat = StatQuantileRibbon,
+        geom = geom,
+        position = position,
         show.legend = show.legend,
         inherit.aes = inherit.aes,
         params = list(probs = probs,
@@ -444,25 +447,91 @@ stat_quantile_ribbon <- function(mapping = NULL, data = NULL, geom = "ribbon",
   )
 }
 
-#### _4) geom_proj
+#### _4) GeomQuantileRibbon
 
+GeomQuantileRibbon <- ggproto(
+  "GeomQuantileRibbon", Geom,
+  required_aes = c("x", "y"), 
+  draw_key = ggplot2::draw_key_boxplot, ## MAY NEED TO DEFINE A DRAW_KEY
+  default_aes = aes(weight = 1, colour = "grey20", fill = "white", size = 0.5,
+                    alpha = NA, shape = 19, linetype = "solid"),
+  setup_params = function(data, params) {
+    if(is.null(params$probs)) {
+      params$probs <- c(.25, .5, .75)
+    } else if(any(params$probs < 0) | any(params$probs > 1)) {
+      rlang::abort("Quantile Ribbons must be defined with `probs` in [0, 1]")
+    }
+    params
+  }
+  
+  draw_group = function(data, panel_params, coord, probs,
+                        linetype, size, ## of outline of ribbon
+                        na.rm = TRUE){
+    
+    data <- flip_data(data, flipped_aes)
+    # this may occur when using geom_quantile_ribbon(stat = "identity")
+    if (nrow(data) != 1) {
+      abort("Can't draw more than one ribbon per group. Did you forget aes(group = ...)?")
+    }
+    
+    common <- list(
+      colour = data$colour,
+      linetype = data$linetype,
+      size = data$size, ## of outline of ribbon
+      fill = alpha(data$fill, data$alpha),
+      group = data$group
+    )
+    
+    ## Names of the probs, control the production of ribbons
+    nms <- names(quantile(0, probs = probs))
+    env <- environment()
+    mute <- sapply(seq_len(length(nms) - 1), function(i){
+      ind <- i:(i + 1)
+      .ls <- list(data$x)
+      #, nms[ind])
+      #names(.ls) <- c("x", nms[ind])
+      .ribbon <- vctrs::new_data_frame(c(.ls, common))
+      assign(paste0("ribbon", i), .ribbon, envir = env)
+    })
+    
+    if("ribbon1" %in% ls()) {
+      message("FOUND RIBBON1.")
+    }
+    print(dim(ribbon1))
+    ggplot2:::ggname("geom_quatile_ribbon", grid::grobTree(
+      GeomRibbon$draw_panel(ribbon1, panel_params, coord)
+    ))
+  }
+)
+
+#' @example 
+#' vic_elec <- tsibbledata::vic_elec
+#' library(gravitas)
+#' library(ggplot2)
+#' vic_elec <- vic_elec %>% create_gran("hour_day")
+#' vic_elec %>% 
+#'   ggplot(aes(x = hour_day, y = Demand)) +
+#'   geom_quantile_ribbon()
+
+
+#### _5) geom_quantile_ribbon
 geom_quantile_ribbon <- function(mapping = NULL,
                       data = NULL,
-                      stat = "myquantile",
+                      stat = "quantile_ribbon",
                       position = "identity",
                       ...,
-                      basis = NULL,
-                      na.rm = FALSE,
+                      probs = NULL,
+                      na.rm = TRUE,
                       show.legend = NA,
                       inherit.aes = TRUE){
   layer(data = data,
         mapping = mapping,
         stat = stat,
-        geom = GeomRibbon,
+        geom = GeomQuantileRibbon,
         position = position,
         show.legend = show.legend,
         inherit.aes = inherit.aes,
-        params = list(basis,
+        params = list(probs,
                       na.rm = na.rm,
                       ...
         )
@@ -470,18 +539,18 @@ geom_quantile_ribbon <- function(mapping = NULL,
 }
 
 
-## _4) Test drive
+## _6) Test drive
 ## __A) Without group
-z <- data.frame(
-  x_fct = as.factor(rep(letters[1:3], each = 5)),
-  x_num = rep(1:3, each = 5),
-  measure = c(1:5,
-        seq(10, 25, length.out = 5),
-        seq(-10, -2, length.out = 5))
-)
-
-ggplot(z) + 
-  geom_quantile_ribbon(aes(x_fct, measure))
+#' z <- data.frame(
+#'   x_fct = as.factor(rep(letters[1:3], each = 5)),
+#'   x_num = rep(1:3, each = 5),
+#'   measure = c(1:5,
+#'         seq(10, 25, length.out = 5),
+#'         seq(-10, -2, length.out = 5))
+#' )
+#' 
+#' ggplot(z) + 
+#'   geom_quantile_ribbon(aes(x_fct, measure))
 
 ## __B) With group
 
